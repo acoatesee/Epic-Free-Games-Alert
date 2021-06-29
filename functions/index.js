@@ -1,8 +1,8 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const axios = require('axios');
-const express = require('express');
-const App = express();
+// const express = require('express');
+// const App = express();
 
 admin.initializeApp()
 const db = admin.firestore()
@@ -34,9 +34,10 @@ const db = admin.firestore()
  * nice to have
  *    send thumbnail
  *    format discord msg
+ *    color code by content type ie base:blue , dlc: green
  */
 
-App.post('/update-games', async (req, res) =>{
+const updateGames = functions.https.onRequest(async (req, res) => {
   /**
    *  🚧 needs to handle removing old data this can happen while waiting for response from axios if promotional date range can be determined.
    *      - prevents serving outdated promotions if the 'freeGamesUrl' becomes depreciated      
@@ -65,11 +66,12 @@ App.post('/update-games', async (req, res) =>{
 
   gamesList
     .filter(game => isFree(game))
-    .forEach(({title,effectiveDate,productSlug}) => {
-      console.log(new Date(effectiveDate), new Date())
+    .forEach(game => {
+      const {title,effectiveDate,productSlug, offerType} = game
+      const thumbnail = game.keyImages.find(img => img.type === "Thumbnail").url
       batch.set(
         db.collection('freeGames').doc(productSlug),
-        {title, effectiveDate, productSlug}
+        {title, effectiveDate, productSlug, offerType, thumbnail}
   )})
   batch
     .commit()
@@ -80,10 +82,34 @@ App.post('/update-games', async (req, res) =>{
   return res.status(200).json({})
 });
 
+const subscribe = functions.https.onRequest(async (req, res) => {
+  const subscriptions = db.collection('subscriptions')
 
-const epic = functions.https.onRequest(App)
+  const {url} = req.body
+  if (!url){
+    res.status(400).json({
+      error: 'This method expects a url field eg.`url: "https://discord.com/api/webhooks/[some webhook]"`'})
+  } 
+
+  subscriptions.doc(url.split('/').pop()).set({
+    url: url,
+    lastMessageDate: null 
+  })
+
+  res.json(url)
+})
+
+
+// const sendOffers = functions.firestore
+//   .document('subscriptions/{docId}')
+//   .onCreate((change, context) => { 
+//     console.log({change}) 
+//     console.log({context}) 
+//   });
+
 
 module.exports ={
-  epic 
+  updateGames, 
+  subscribe,
+  sendOffers
 }
-
