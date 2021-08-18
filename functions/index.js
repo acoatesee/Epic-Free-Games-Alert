@@ -91,7 +91,7 @@ const subscribe = functions.https.onRequest(async (req, res) => {
       error: 'This method expects a url field eg.`url: "https://discord.com/api/webhooks/[some webhook]"`'})
   } 
 
-  subscriptions.doc(url.split('/').pop()).set({
+  subscriptions.doc(url.split('/').pop()).set({ // 🚧 change to use automatic ID on delete lookup by url field
     url: url,
     lastMessageDate: null 
   })
@@ -100,16 +100,111 @@ const subscribe = functions.https.onRequest(async (req, res) => {
 })
 
 
-// const sendOffers = functions.firestore
-//   .document('subscriptions/{docId}')
-//   .onCreate((change, context) => { 
-//     console.log({change}) 
-//     console.log({context}) 
-//   });
+const sendOffers = (offers, targetUrl) => {
+  console.log({offers})
+  if(offers.length < 1) {
+    console.log("no offers saved")
+    return
+  }
+  const now = new Date()
+  
+  let  [preMsg, offerColor] = ["uknown Offer", "111"]
+  const embeds = offers.map(offer => {
+    effectiveDate = offer.effectiveDate.toDate();
+    console.log(now, effectiveDate);
+    if (effectiveDate <= now) { // green if offer is active
+      [preMsg, offerColor] = ["Current Offer", 4582551] 
+    } else if (effectiveDate >= now) { // pink if planned 
+      [preMsg, offerColor] = ["Future Offer", 13447839]
+    } 
+    return {
+      "title" : `${preMsg}: ${offer.title}`,
+      "description" : "",
+      "url" : `https://www.epicgames.com/store/en-US/p/${offer.productSlug}`,
+      "color" : offerColor,
+      "thumbnail": {
+        "url": offer.thumbnail
+      }       
+    }
+  }) 
+
+  const message = {
+      "username" : "Free Game bot",
+      "avatar_url" : "https://image.flaticon.com/icons/png/512/1120/1120676.png",
+      "content" : "New free games!",
+      "embeds" : embeds
+  }
+
+  console.log(message);
+  // try {
+    return axios.post(targetUrl, message)
+  // } catch (error) {
+  //   console.log("failure no such url?", error)
+  // }
+}
+
+/**
+ * 
+ * @returns array of game objects [{title: "Fun Game", productSlug: "Fun-Game", img: "cdn.epicgames.com/FunGame-Poster",...},...]
+ */
+const getGames = () => {
+  return (
+    db.collection("freeGames")
+    .get()     
+    .then((querySnapshot) => {
+        return querySnapshot.docs.map((doc) => { // 
+          return doc.data()
+        });
+    })
+    .catch((error) => {
+        console.log("Error getting documents: ", error);
+    })
+  )
+}
+
+/**
+ * when a new subscriber is added send a welcome msg and the current deals
+ */
+const onCreateSubscriber = functions.firestore.document('/subscriptions/{subId}')
+  .onCreate(async (snap, context) => { 
+    // console.log({snap}) 
+    let subId = context.params.subId
+    let snapData = snap.data()
+    console.log(`Subscriber: ${subId} at url: ${snapData.url}`);
+    let games = await getGames()
+    sendOffers(games,snapData.url)
+      .catch((error) =>console.log(error))
+});
+
+/**
+ * when games are added to the promotions collection send a message to all subscribers
+ */
+const onUpdateFreeGames = functions.firestore.document('/freeGames/{gameName}')
+  .onUpdate( async(change, context) =>{
+    console.log('***free game Change!')
+    const before = change.before.data()
+    const after = change.after.data()
+    console.log(after.effectiveDate.toDate())
+    console.log(`before: ${JSON.stringify(before)}, after: ${JSON.stringify(after)}`)
+    // let games = snap.data()
+    // console.log(`current free games : ${games}`);
+    return
+  })
+
+  
+const onCreateFreeGames = functions.firestore.document('/freeGames/{gameName}')
+  .onCreate(async( snap, context) => {
+    console.log('new game added')
+
+  });
+
 
 
 module.exports ={
   updateGames, 
   subscribe,
+  onCreateSubscriber,
+  onUpdateFreeGames,
+  onCreateFreeGames,
   sendOffers
 }
